@@ -1,0 +1,86 @@
+name: ESP-IDF Build
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        submodules: 'recursive'
+    
+    - name: Setup ESP-IDF
+      uses: espressif/esp-idf-ci-action@v1
+      with:
+        esp_idf_version: v5.4.2
+        target: esp32s3
+    
+    - name: Build project
+      run: |
+        . $IDF_PATH/export.sh
+        idf.py build
+    
+    - name: Build tests
+      run: |
+        . $IDF_PATH/export.sh
+        idf.py -T test build
+    
+    - name: Archive build artifacts
+      uses: actions/upload-artifact@v4
+      if: success()
+      with:
+        name: build-artifacts
+        path: |
+          build/*.bin
+          build/*.elf
+          build/*.map
+        retention-days: 30
+    
+    - name: Archive test artifacts
+      uses: actions/upload-artifact@v4
+      if: success()
+      with:
+        name: test-artifacts
+        path: |
+          build-test/*.bin
+          build-test/*.elf
+        retention-days: 30
+
+  lint:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.8'
+    
+    - name: Install dependencies
+      run: |
+        pip install pre-commit
+    
+    - name: Run pre-commit hooks
+      run: |
+        pre-commit run --all-files || true
+
+  check-format:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Check code formatting
+      run: |
+        # Add clang-format or other formatting checks here
+        echo "Code formatting check placeholder"

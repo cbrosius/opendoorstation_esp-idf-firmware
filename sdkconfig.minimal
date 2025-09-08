@@ -1,0 +1,17 @@
+# Minimal ESP32-S3 Configuration for SIP Door Station
+# Use this if sdkconfig.defaults causes issues
+
+# Target Configuration
+CONFIG_IDF_TARGET="esp32s3"
+
+# Basic ESP32-S3 Settings
+CONFIG_ESP32S3_DEFAULT_CPU_FREQ_240=y
+
+# Unity Test Framework (minimal)
+CONFIG_UNITY_ENABLE_FLOAT=y
+
+# Logging (basic)
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+
+# NVS - Explicitly disable encryption
+CONFIG_NVS_ENCRYPTION=n

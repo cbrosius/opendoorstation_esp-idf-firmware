@@ -1,0 +1,4 @@
+ESP32 SIP Door Station
+
+A smart door intercom system that enables remote door access control through SIP (VoIP) calling.
+Built on ESP-IDF framework for ESP32-S3 microcontroller.

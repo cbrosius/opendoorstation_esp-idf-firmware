@@ -1,0 +1,54 @@
+# Git attributes for ESP-IDF project
+
+# Text files
+*.c text
+*.h text
+*.cpp text
+*.hpp text
+*.py text
+*.md text
+*.txt text
+*.json text
+*.yml text
+*.yaml text
+*.xml text
+*.html text
+*.css text
+*.js text
+
+# ESP-IDF specific
+*.cmake text
+CMakeLists.txt text
+Kconfig text
+Kconfig.projbuild text
+sdkconfig.defaults text
+
+# Binary files
+*.bin binary
+*.elf binary
+*.map binary
+*.a binary
+*.so binary
+
+# Images
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.svg text
+
+# Archives
+*.zip binary
+*.tar binary
+*.gz binary
+
+# Line ending normalization
+* text=auto
+
+# Ensure shell scripts have LF line endings
+*.sh text eol=lf
+
+# Ensure batch files have CRLF line endings on Windows
+*.bat text eol=crlf
+*.cmd text eol=crlf

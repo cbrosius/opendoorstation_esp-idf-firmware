@@ -1,0 +1,42 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.4.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-added-large-files
+      - id: check-merge-conflict
+      - id: mixed-line-ending
+        args: ['--fix=lf']
+      - id: check-case-conflict
+
+  - repo: https://github.com/psf/black
+    rev: 23.3.0
+    hooks:
+      - id: black
+        language_version: python3
+        files: '\.py$'
+
+  - repo: https://github.com/pycqa/isort
+    rev: 5.12.0
+    hooks:
+      - id: isort
+        args: ["--profile", "black"]
+        files: '\.py$'
+
+  - repo: https://github.com/pycqa/flake8
+    rev: 6.0.0
+    hooks:
+      - id: flake8
+        files: '\.py$'
+        args: ['--max-line-length=88', '--extend-ignore=E203,W503']
+
+  - repo: local
+    hooks:
+      - id: check-esp-idf-style
+        name: Check ESP-IDF C/C++ style
+        entry: bash -c 'echo "ESP-IDF style check placeholder - add clang-format or similar"'
+        language: system
+        files: '\.(c|h|cpp|hpp)$'
