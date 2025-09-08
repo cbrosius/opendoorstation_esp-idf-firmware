@@ -1,4 +1,4 @@
-idf_component_register(SRCS "app_main.c" "config_manager.c" "io_manager.c" "io_events.c"
+idf_component_register(SRCS "app_main.c" "config_manager.c" "io_manager.c" "io_events.c" "sip_manager.c" "sip_io_integration.c" "esp_sip.c"
                     INCLUDE_DIRS "."
                     REQUIRES nvs_flash driver esp_event esp_timer)
 
