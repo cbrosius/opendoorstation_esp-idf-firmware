@@ -82,3 +82,4 @@ certificate.pem
 config_private.h
 secrets.h
 wifi_credentials.h
+.env
