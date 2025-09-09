@@ -8,7 +8,13 @@
 #include "esp_wifi.h"
 #include "esp_netif.h"
 #include "cJSON.h"
+#include <sys/stat.h>
+#include <errno.h>
 #include <string.h>
+#include <stdio.h>
+#include <string.h>
+#include <errno.h>
+#include <sys/stat.h>
 
 static const char *TAG = "web_server";
 static httpd_handle_t server = NULL;
@@ -277,6 +283,223 @@ static esp_err_t relays_get_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
+static const char* get_content_type(const char* file_path) {
+    const char* ext = strrchr(file_path, '.');
+    if (!ext) return "application/octet-stream";
+    ext++; // Skip the dot
+    
+    if (strcasecmp(ext, "html") == 0) return "text/html";
+    if (strcasecmp(ext, "js") == 0) return "application/javascript";
+    if (strcasecmp(ext, "css") == 0) return "text/css";
+    if (strcasecmp(ext, "png") == 0) return "image/png";
+    if (strcasecmp(ext, "jpg") == 0) return "image/jpeg";
+    if (strcasecmp(ext, "jpeg") == 0) return "image/jpeg";
+    if (strcasecmp(ext, "ico") == 0) return "image/x-icon";
+    
+    return "application/octet-stream";
+}
+
+static esp_err_t static_get_handler(httpd_req_t *req)
+{
+    char file_path[256] = {0};  // Buffer for file path
+    char test_path[256] = {0};  // Buffer for testing paths
+    const char* uri_path = req->uri;
+    const size_t max_path = sizeof(file_path) - 1;  // Leave room for null terminator
+    
+    ESP_LOGI(TAG, "=== Static File Request ===");
+    ESP_LOGI(TAG, "URI: '%s'", uri_path);
+    ESP_LOGI(TAG, "Method: %d", req->method);
+    
+    // Debug: List all files in SPIFFS
+    DIR* dir = opendir("/web_root");
+    if (dir) {
+        struct dirent* ent;
+        ESP_LOGI(TAG, "Files in SPIFFS:");
+        while ((ent = readdir(dir)) != NULL) {
+            ESP_LOGI(TAG, "  - %s", ent->d_name);
+        }
+        closedir(dir);
+    } else {
+        ESP_LOGW(TAG, "Could not open SPIFFS directory");
+    }
+    
+    // Basic security check: prevent directory traversal
+    if (strstr(uri_path, "..") != NULL) {
+        ESP_LOGW(TAG, "Directory traversal attempt blocked: %s", uri_path);
+        httpd_resp_send_404(req);
+        return ESP_FAIL;
+    }
+    
+    // Initialize file path
+    file_path[0] = '\0';
+    memset(file_path, 0, sizeof(file_path));  // Ensure buffer is clean
+    
+    // Handle root path
+    if (strlen(uri_path) == 0 || strcmp(uri_path, "/") == 0) {
+        ESP_LOGI(TAG, "Root path requested, serving index.html");
+        strncpy(file_path, "/web_root/index.html", max_path);
+        file_path[max_path] = '\0';
+    } else {
+        // Skip leading slash for path comparison
+        const char* path = uri_path;
+        if (path[0] == '/') {
+            path++;
+        }
+
+        // If the client already requested a path starting with "web_root/",
+        // use it directly to avoid creating "/web_root/web_root/...".
+        if (strncmp(path, "web_root/", 8) == 0) {
+            // path already contains the web_root prefix
+            if (strlen(path) + 1 <= sizeof(file_path)) {
+                // Prepend a leading slash to make an absolute path
+                file_path[0] = '/';
+                strncpy(file_path + 1, path, sizeof(file_path) - 2);
+                file_path[sizeof(file_path) - 1] = '\0';
+            } else {
+                ESP_LOGE(TAG, "Path too long: %s", path);
+                httpd_resp_send_404(req);
+                return ESP_FAIL;
+            }
+        } else {
+            // Safely construct the file path with the web_root prefix
+            size_t needed = strlen(path) + strlen("/web_root/") + 1; // +1 for null
+            if (needed <= sizeof(file_path)) {
+                // Build path safely without formatted output to silence compiler truncation warnings
+                strncpy(file_path, "/web_root/", sizeof(file_path));
+                file_path[sizeof(file_path) - 1] = '\0';
+                strncat(file_path, path, sizeof(file_path) - strlen(file_path) - 1);
+            } else {
+                ESP_LOGE(TAG, "Path too long: %s", path);
+                httpd_resp_send_404(req);
+                return ESP_FAIL;
+            }
+        }
+    }
+    
+    ESP_LOGI(TAG, "Looking for file: '%s'", file_path);
+
+    // Check if file exists
+    struct stat st;
+    if (stat(file_path, &st) != 0) {
+        ESP_LOGW(TAG, "File not found: '%s' (errno: %d)", file_path, errno);
+        
+        // Try alternative paths for the file
+        const char* path = uri_path;
+        if (path[0] == '/') path++; // Skip leading slash if present
+        
+        // Try all possible locations
+        bool found = false;
+        if (strlen(path) <= max_path - 20) { // Leave room for prefixes/extensions
+            const char* test_patterns[] = {
+                "/web_root/%s",          // Try direct path in web_root
+                "/web_root/static/%s",   // Try static subdirectory
+                "/web_root/css/%s",      // Try css subdirectory
+                "/web_root/js/%s"        // Try js subdirectory
+            };
+            
+            for (size_t i = 0; i < sizeof(test_patterns)/sizeof(test_patterns[0]); i++) {
+                snprintf(test_path, sizeof(test_path), test_patterns[i], path);
+                if (stat(test_path, &st) == 0) {
+                    strncpy(file_path, test_path, max_path);
+                    file_path[max_path] = '\0';
+                    found = true;
+                    ESP_LOGI(TAG, "Found file at alternate location: '%s'", file_path);
+                    break;
+                }
+            }
+            
+            // If still not found and no extension provided, try with common extensions
+            if (!found && strchr(path, '.') == NULL) {
+                const char* extensions[] = {".html", ".htm", ".txt"};
+                for (size_t i = 0; i < sizeof(extensions)/sizeof(extensions[0]); i++) {
+                    if (snprintf(test_path, sizeof(test_path), "/web_root/%s%s", path, extensions[i]) < (int)sizeof(test_path)) {
+                        if (stat(test_path, &st) == 0) {
+                            strncpy(file_path, test_path, max_path);
+                            file_path[max_path] = '\0';
+                            ESP_LOGI(TAG, "Found file with extension: '%s'", file_path);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Open the file
+    FILE* fp = fopen(file_path, "r");
+    if (!fp) {
+        ESP_LOGE(TAG, "Failed to open file: '%s' (errno: %d - %s)", file_path, errno, strerror(errno));
+        
+        // Extract the filename for logging
+        const char* filename = strrchr(file_path, '/');
+        filename = filename ? filename + 1 : file_path;
+        
+        // Log what we're looking for and what's available
+        ESP_LOGI(TAG, "Looking for file '%s' in SPIFFS", filename);
+        DIR* dir = opendir("/web_root");
+        if (dir) {
+            struct dirent* ent;
+            ESP_LOGI(TAG, "Available files:");
+            while ((ent = readdir(dir)) != NULL) {
+                ESP_LOGI(TAG, "  - '%s'", ent->d_name);
+            }
+            closedir(dir);
+        }
+        
+        httpd_resp_send_404(req);
+        return ESP_FAIL;
+    }
+
+    // Get latest file stats for sending
+    if (fstat(fileno(fp), &st) != 0) {
+        ESP_LOGE(TAG, "Failed to get file size: %s", strerror(errno));
+        fclose(fp);
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+
+    // Set content type and content length
+    const char* content_type = get_content_type(file_path);
+    httpd_resp_set_type(req, content_type);
+    
+    char content_length[32];
+    snprintf(content_length, sizeof(content_length), "%lld", (long long)st.st_size);
+    httpd_resp_set_hdr(req, "Content-Length", content_length);
+
+    ESP_LOGI(TAG, "Serving file '%s' (%lld bytes)", file_path, (long long)st.st_size);
+    
+    // Read and send file in chunks
+    char chunk[1024];
+    size_t remaining = (size_t)st.st_size;
+    
+    while (remaining > 0) {
+        size_t chunk_size = (remaining < sizeof(chunk)) ? remaining : sizeof(chunk);
+        size_t read_bytes = fread(chunk, 1, chunk_size, fp);
+        
+        if (read_bytes != chunk_size) {
+            ESP_LOGE(TAG, "Failed to read file: %s", strerror(errno));
+            fclose(fp);
+            httpd_resp_send_500(req);
+            return ESP_FAIL;
+        }
+        
+        if (httpd_resp_send_chunk(req, chunk, read_bytes) != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to send chunk!");
+            fclose(fp);
+            httpd_resp_send_chunk(req, NULL, 0);
+            httpd_resp_send_500(req);
+            return ESP_FAIL;
+        }
+        
+        remaining -= read_bytes;
+    }
+    
+    fclose(fp);
+    httpd_resp_send_chunk(req, NULL, 0);
+    ESP_LOGI(TAG, "File '%s' sent successfully", file_path);
+    return ESP_OK;
+}
+
 // GET /api/status - Get system status
 static esp_err_t status_get_handler(httpd_req_t *req) {
     ESP_LOGI(TAG, "GET /api/status");
@@ -364,100 +587,17 @@ static esp_err_t factory_reset_post_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
-// MIME type mapping
-static const char* get_mime_type(const char* path) {
-    const char* ext = strrchr(path, '.');
-    if (!ext) return "text/plain";
-    
-    if (strcmp(ext, ".html") == 0) return "text/html";
-    if (strcmp(ext, ".css") == 0) return "text/css";
-    if (strcmp(ext, ".js") == 0) return "application/javascript";
-    if (strcmp(ext, ".json") == 0) return "application/json";
-    if (strcmp(ext, ".ico") == 0) return "image/x-icon";
-    
-    return "text/plain";
-}
 
-// Static file handler
-static esp_err_t static_file_handler(httpd_req_t *req) {
-    char filepath[512];
-    const char* filename = req->uri;
-    
-    // Default to index.html for root path
-    if (strcmp(filename, "/") == 0) {
-        filename = "/index.html";
-    }
-    
-    // Validate filename length to prevent buffer overflow
-    // Reasonable limit for web file paths (buffer is 512, "/web_root" is 9)
-    if (strlen(filename) > 200) {
-        ESP_LOGW(TAG, "Filename too long: %s", filename);
-        httpd_resp_send_404(req);
-        return ESP_FAIL;
-    }
-    
-    // Basic security check: prevent directory traversal
-    if (strstr(filename, "..") != NULL) {
-        ESP_LOGW(TAG, "Directory traversal attempt blocked: %s", filename);
-        httpd_resp_send_404(req);
-        return ESP_FAIL;
-    }
-    
-    // Build full file path safely
-    const char* prefix = "/web_root";
-    size_t prefix_len = strlen(prefix);
-    size_t filename_len = strlen(filename);
-    
-    // Double-check total length
-    if (prefix_len + filename_len + 1 > sizeof(filepath)) {
-        ESP_LOGW(TAG, "File path would be too long: %s", filename);
-        httpd_resp_send_404(req);
-        return ESP_FAIL;
-    }
-    
-    // Safe string construction
-    strcpy(filepath, prefix);
-    strcat(filepath, filename);
-    
-    ESP_LOGI(TAG, "Serving file: %s", filepath);
-    
-    // Open file
-    FILE* file = fopen(filepath, "r");
-    if (!file) {
-        ESP_LOGW(TAG, "File not found: %s", filepath);
-        httpd_resp_send_404(req);
-        return ESP_FAIL;
-    }
-    
-    // Set content type
-    const char* mime_type = get_mime_type(filename);
-    httpd_resp_set_type(req, mime_type);
-    
-    // Send file content
-    char buffer[1024];
-    size_t bytes_read;
-    while ((bytes_read = fread(buffer, 1, sizeof(buffer), file)) > 0) {
-        if (httpd_resp_send_chunk(req, buffer, bytes_read) != ESP_OK) {
-            fclose(file);
-            ESP_LOGE(TAG, "Failed to send file chunk");
-            return ESP_FAIL;
-        }
-    }
-    
-    // Send empty chunk to signal end
-    httpd_resp_send_chunk(req, NULL, 0);
-    fclose(file);
-    
-    return ESP_OK;
-}
 
 // Initialize SPIFFS for static file serving
 static esp_err_t init_spiffs(void) {
+    ESP_LOGI(TAG, "Initializing SPIFFS");
+    
     esp_vfs_spiffs_conf_t conf = {
-        .base_path = "/web_root",
-        .partition_label = NULL,
+        .base_path = "/web_root",  // This must match the path we use in static_get_handler
+        .partition_label = "spiffs",
         .max_files = 5,
-        .format_if_mount_failed = true
+        .format_if_mount_failed = false  // Don't format if mount fails, we want to see the error
     };
     
     esp_err_t ret = esp_vfs_spiffs_register(&conf);
@@ -473,13 +613,52 @@ static esp_err_t init_spiffs(void) {
     }
     
     size_t total = 0, used = 0;
-    ret = esp_spiffs_info(NULL, &total, &used);
+    ret = esp_spiffs_info(conf.partition_label, &total, &used);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to get SPIFFS partition information (%s)", esp_err_to_name(ret));
-    } else {
-        ESP_LOGI(TAG, "Partition size: total: %d, used: %d", total, used);
+        return ret;
     }
     
+    ESP_LOGI(TAG, "SPIFFS mounted successfully. Total: %d bytes, Used: %d bytes", total, used);
+    
+    // List all files in SPIFFS
+    DIR* dir = opendir("/web_root");
+    if (dir == NULL) {
+        ESP_LOGE(TAG, "Failed to open directory /web_root (errno: %d - %s)", errno, strerror(errno));
+        return ESP_FAIL;
+    }
+    
+    struct dirent* ent;
+    while ((ent = readdir(dir)) != NULL) {
+        struct stat st;
+        char fullpath[600];
+        snprintf(fullpath, sizeof(fullpath), "/web_root/%s", ent->d_name);
+        if (stat(fullpath, &st) == 0) {
+            ESP_LOGI(TAG, "Found file: %s (%ld bytes)", ent->d_name, st.st_size);
+        }
+    }
+    closedir(dir);
+    
+    // Specifically check for index.html
+    struct stat st;
+    if (stat("/web_root/index.html", &st) == 0) {
+        ESP_LOGI(TAG, "index.html found (%ld bytes)", st.st_size);
+    } else {
+        ESP_LOGE(TAG, "index.html not found! (errno: %d - %s)", errno, strerror(errno));
+        if (ret == ESP_ERR_INVALID_STATE) {
+            ESP_LOGI(TAG, "Attempting to format SPIFFS partition...");
+            ret = esp_spiffs_format(conf.partition_label);
+            if (ret != ESP_OK) {
+                ESP_LOGE(TAG, "Failed to format SPIFFS: %s", esp_err_to_name(ret));
+                return ret;
+            }
+            ESP_LOGI(TAG, "SPIFFS formatted successfully");
+            return ESP_OK;
+        }
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "SPIFFS initialization complete. Total: %d bytes, Used: %d bytes", total, used);
     return ESP_OK;
 }
 
@@ -578,20 +757,96 @@ esp_err_t web_server_init(uint16_t port) {
         return ret;
     }
     
-    // Register status API endpoint
+    // Register handlers in order of specificity: most specific first
+    
+    // 1. Register specific API endpoints
     httpd_uri_t status_get_uri = {
         .uri = "/api/status",
         .method = HTTP_GET,
         .handler = status_get_handler,
         .user_ctx = NULL
     };
-    
     ret = httpd_register_uri_handler(server, &status_get_uri);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to register status GET handler: %s", esp_err_to_name(ret));
         httpd_stop(server);
         server = NULL;
         return ret;
+    }
+
+    // 2. Register root path handler explicitly
+    httpd_uri_t root_uri = {
+        .uri = "/",
+        .method = HTTP_GET,
+        .handler = static_get_handler,
+        .user_ctx = NULL
+    };
+    ret = httpd_register_uri_handler(server, &root_uri);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to register root handler: %s", esp_err_to_name(ret));
+        httpd_stop(server);
+        server = NULL;
+        return ret;
+    }
+
+    // 3. Register catch-all handler for other static files
+    httpd_uri_t static_get_uri = {
+        .uri = "/*",
+        .method = HTTP_GET,
+        .handler = static_get_handler,
+        .user_ctx = NULL
+    };
+    
+    ret = httpd_register_uri_handler(server, &static_get_uri);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to register status GET handler: %s", esp_err_to_name(ret));
+        httpd_stop(server);
+        server = NULL;
+        return ret;
+    }
+    
+    // Also register handlers for commonly requested literal paths that may appear
+    // in requests (some clients request full paths like /web_root/index.html)
+    httpd_uri_t webroot_prefix_uri = {
+        .uri = "/web_root/*",
+        .method = HTTP_GET,
+        .handler = static_get_handler,
+        .user_ctx = NULL
+    };
+    ret = httpd_register_uri_handler(server, &webroot_prefix_uri);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Could not register /web_root/* handler: %s", esp_err_to_name(ret));
+    }
+
+    // Register specific asset paths as well to be safe
+    httpd_uri_t index_uri = {
+        .uri = "/index.html",
+        .method = HTTP_GET,
+        .handler = static_get_handler,
+        .user_ctx = NULL
+    };
+    if (httpd_register_uri_handler(server, &index_uri) != ESP_OK) {
+        ESP_LOGW(TAG, "Could not register /index.html handler");
+    }
+
+    httpd_uri_t css_uri = {
+        .uri = "/style.css",
+        .method = HTTP_GET,
+        .handler = static_get_handler,
+        .user_ctx = NULL
+    };
+    if (httpd_register_uri_handler(server, &css_uri) != ESP_OK) {
+        ESP_LOGW(TAG, "Could not register /style.css handler");
+    }
+
+    httpd_uri_t js_uri = {
+        .uri = "/app.js",
+        .method = HTTP_GET,
+        .handler = static_get_handler,
+        .user_ctx = NULL
+    };
+    if (httpd_register_uri_handler(server, &js_uri) != ESP_OK) {
+        ESP_LOGW(TAG, "Could not register /app.js handler");
     }
     
     // Register Server-Sent Events endpoint
@@ -621,22 +876,6 @@ esp_err_t web_server_init(uint16_t port) {
     ret = httpd_register_uri_handler(server, &factory_reset_post_uri);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to register factory reset POST handler: %s", esp_err_to_name(ret));
-        httpd_stop(server);
-        server = NULL;
-        return ret;
-    }
-    
-    // Register static file handler (catch-all, must be last)
-    httpd_uri_t static_uri = {
-        .uri = "/*",
-        .method = HTTP_GET,
-        .handler = static_file_handler,
-        .user_ctx = NULL
-    };
-    
-    ret = httpd_register_uri_handler(server, &static_uri);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to register static file handler: %s", esp_err_to_name(ret));
         httpd_stop(server);
         server = NULL;
         return ret;

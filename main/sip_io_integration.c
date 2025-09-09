@@ -199,8 +199,8 @@ esp_err_t sip_io_integration_init(const sip_io_config_t *config) {
         return ESP_ERR_INVALID_ARG;
     }
     
-    if (integration.config.hangup_delay_ms > 60000) {
-        ESP_LOGE(TAG, "Invalid hangup delay: %lu ms", integration.config.hangup_delay_ms);
+    if (integration.config.hangup_delay_ms == 0 || integration.config.hangup_delay_ms > 60000) {
+        ESP_LOGE(TAG, "Invalid hangup delay: %lu ms (must be between 1 and 60000)", integration.config.hangup_delay_ms);
         return ESP_ERR_INVALID_ARG;
     }
     

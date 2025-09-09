@@ -74,6 +74,11 @@ static esp_err_t validate_sip_config(const sip_config_t *config) {
         ESP_LOGE(TAG, "Invalid SIP port");
         return ESP_ERR_INVALID_ARG;
     }
+
+    if (config->call_timeout == 0) {
+        ESP_LOGE(TAG, "Invalid call timeout");
+        return ESP_ERR_INVALID_ARG;
+    }
     
     return ESP_OK;
 }

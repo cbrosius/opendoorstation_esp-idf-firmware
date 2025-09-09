@@ -87,7 +87,7 @@ esp_err_t io_manager_init(void)
     BaseType_t task_ret = xTaskCreate(
         button_task,
         "button_task",
-        2048,
+        4096,
         NULL,
         5,
         NULL

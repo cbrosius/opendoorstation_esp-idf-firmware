@@ -159,6 +159,15 @@ esp_err_t app_controller_handle_relay_state_change(relay_id_t relay, relay_state
 esp_err_t app_controller_handle_error(int error_code, const char *error_message);
 
 /**
+ * @brief Starts the network-dependent services in a dedicated task.
+ * 
+ * This should be called after WiFi is connected.
+ * 
+ * @return ESP_OK on success, error code otherwise
+ */
+esp_err_t app_controller_start_services(void);
+
+/**
  * @brief Update configuration
  * 
  * @param config New configuration

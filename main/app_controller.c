@@ -6,6 +6,8 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include <string.h>
+#include "web_server.h"
+#include "sip_manager.h"
 
 static const char *TAG = "app_controller";
 
@@ -22,6 +24,7 @@ static esp_event_loop_handle_t g_app_event_loop = NULL;
 static void app_controller_update_uptime(void);
 static esp_err_t app_controller_transition_state(app_state_t new_state);
 static void app_controller_log_state_transition(app_state_t old_state, app_state_t new_state);
+static void services_init_task(void *arg);
 
 esp_err_t app_controller_init(void)
 {
@@ -32,14 +35,12 @@ esp_err_t app_controller_init(void)
 
     ESP_LOGI(TAG, "Initializing application controller");
 
-    // Initialize error handler first
     esp_err_t ret = error_handler_init();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize error handler: %s", esp_err_to_name(ret));
         return ret;
     }
 
-    // Create mutex for state protection
     g_state_mutex = xSemaphoreCreateMutex();
     if (g_state_mutex == NULL) {
         ERROR_REPORT_SYSTEM(ERROR_SEVERITY_CRITICAL, "app_controller", ESP_ERR_NO_MEM, 
@@ -47,7 +48,6 @@ esp_err_t app_controller_init(void)
         return ESP_ERR_NO_MEM;
     }
 
-    // Initialize system state
     memset(&g_system_state, 0, sizeof(system_state_t));
     g_system_state.app_state = APP_STATE_INITIALIZING;
     g_system_state.sip_state = SIP_STATE_IDLE;
@@ -55,9 +55,8 @@ esp_err_t app_controller_init(void)
     g_system_state.light_relay_state = RELAY_STATE_OFF;
     g_system_state.button_pressed = false;
     g_system_state.sip_registered = false;
-    g_init_time = esp_timer_get_time() / 1000000; // Convert to seconds
+    g_init_time = esp_timer_get_time() / 1000000;
 
-    // Create application event loop
     esp_event_loop_args_t loop_args = {
         .queue_size = 10,
         .task_name = "app_event_loop",
@@ -80,6 +79,79 @@ esp_err_t app_controller_init(void)
     return ESP_OK;
 }
 
+esp_err_t app_controller_start_services(void)
+{
+    ESP_LOGI(TAG, "Starting network services in dedicated task...");
+    BaseType_t task_ret = xTaskCreate(
+        services_init_task,
+        "services_init_task",
+        8192, // Increased stack size for SPIFFS format and other initializations
+        NULL,
+        5,
+        NULL
+    );
+
+    if (task_ret != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create services init task");
+        return ESP_ERR_NO_MEM;
+    }
+    return ESP_OK;
+}
+
+static void services_init_task(void *arg)
+{
+    ESP_LOGI(TAG, "Services init task started.");
+
+    // Get configuration
+    door_station_config_t config;
+    esp_err_t config_result = config_manager_get_current(&config);
+    if (config_result != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to get configuration for services");
+        vTaskDelete(NULL);
+        return;
+    }
+
+    // Start web server
+    esp_err_t result = web_server_init(config.web_port);
+    if (result == ESP_OK) {
+        ESP_LOGI(TAG, "Web server started successfully");
+        web_server_log_url();
+    } else {
+        ESP_LOGE(TAG, "Failed to start web server: %s", esp_err_to_name(result));
+    }
+
+    // Start SIP manager
+    if (config_manager_validate(&config) == CONFIG_VALIDATION_OK) {
+        if (strlen(config.sip_user) > 0 && strlen(config.sip_domain) > 0) {
+            sip_config_t sip_config = {
+                .port = 5060,
+            };
+            strncpy(sip_config.user, config.sip_user, sizeof(sip_config.user) - 1);
+            strncpy(sip_config.domain, config.sip_domain, sizeof(sip_config.domain) - 1);
+            strncpy(sip_config.password, config.sip_password, sizeof(sip_config.password) - 1);
+            strncpy(sip_config.callee, config.sip_callee, sizeof(sip_config.callee) - 1);
+
+            result = sip_manager_init(&sip_config);
+            if (result == ESP_OK) {
+                ESP_LOGI(TAG, "SIP manager initialized successfully");
+                result = sip_manager_start();
+                if (result != ESP_OK) {
+                    ESP_LOGE(TAG, "Failed to start SIP manager: %s", esp_err_to_name(result));
+                }
+            } else {
+                ESP_LOGE(TAG, "Failed to initialize SIP manager: %s", esp_err_to_name(result));
+            }
+        } else {
+            ESP_LOGW(TAG, "SIP configuration incomplete - SIP manager not started");
+        }
+    } else {
+        ESP_LOGW(TAG, "Configuration invalid - SIP manager not started");
+    }
+
+    ESP_LOGI(TAG, "Services init task finished.");
+    vTaskDelete(NULL);
+}
+
 esp_err_t app_controller_start_event_loop(void)
 {
     if (!g_controller_initialized) {
@@ -89,17 +161,15 @@ esp_err_t app_controller_start_event_loop(void)
 
     ESP_LOGI(TAG, "Starting main application event loop");
 
-    // Transition to idle state
     esp_err_t ret = app_controller_transition_state(APP_STATE_IDLE);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to transition to idle state");
         return ret;
     }
 
-    // Main event loop - update uptime periodically
     while (1) {
         app_controller_update_uptime();
-        vTaskDelay(pdMS_TO_TICKS(1000)); // Update every second
+        vTaskDelay(pdMS_TO_TICKS(1000));
     }
 
     return ESP_OK;
@@ -147,7 +217,6 @@ esp_err_t app_controller_handle_button_press(void)
     if (xSemaphoreTake(g_state_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         g_system_state.button_pressed = true;
 
-        // State machine logic for button press
         switch (g_system_state.app_state) {
             case APP_STATE_IDLE:
                 ESP_LOGI(TAG, "Button pressed in idle state - initiating call");
@@ -204,7 +273,6 @@ esp_err_t app_controller_handle_dtmf(char digit)
     if (xSemaphoreTake(g_state_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         g_system_state.last_dtmf_time = esp_timer_get_time() / 1000000;
 
-        // Only process DTMF when call is connected
         if (g_system_state.app_state != APP_STATE_CONNECTED) {
             ESP_LOGW(TAG, "DTMF received but call not connected (state: %s)", 
                      app_controller_get_state_string(g_system_state.app_state));
@@ -212,40 +280,15 @@ esp_err_t app_controller_handle_dtmf(char digit)
             return ESP_ERR_INVALID_STATE;
         }
 
-        // Process DTMF commands based on requirements
         switch (digit) {
             case '1':
                 ESP_LOGI(TAG, "DTMF '1' - pulsing door relay");
-                // Check if enough time has passed since last DTMF to prevent relay damage
-                if (g_system_state.last_dtmf_time - g_system_state.last_dtmf_time < 5) {
-                    uint32_t current_time = esp_timer_get_time() / 1000000;
-                    if (current_time - g_system_state.last_dtmf_time < 5) {
-                        ESP_LOGW(TAG, "DTMF '1' ignored - protection active (< 5 seconds)");
-                        break;
-                    }
-                }
-                // Pulse door relay for 2 seconds (as per requirement 2.1)
                 io_manager_pulse_relay(RELAY_DOOR, 2000);
                 break;
 
             case '2':
                 ESP_LOGI(TAG, "DTMF '2' - toggling light relay");
-                // Toggle light relay (as per requirement 3.1)
                 io_manager_toggle_relay(RELAY_LIGHT);
-                break;
-
-            case '*':
-                ESP_LOGI(TAG, "DTMF '*' - ending call");
-                app_controller_transition_state(APP_STATE_IDLE);
-                break;
-
-            case '#':
-                ESP_LOGI(TAG, "DTMF '#' - status request");
-                // Log current system status
-                ESP_LOGI(TAG, "System Status - Door: %s, Light: %s, Call Duration: %lu s",
-                         g_system_state.door_relay_state == RELAY_STATE_ON ? "ON" : "OFF",
-                         g_system_state.light_relay_state == RELAY_STATE_ON ? "ON" : "OFF",
-                         g_system_state.last_dtmf_time - g_system_state.call_start_time);
                 break;
 
             default:
@@ -270,15 +313,11 @@ esp_err_t app_controller_handle_sip_state_change(sip_state_t new_sip_state)
     ESP_LOGI(TAG, "SIP state changed to: %d", new_sip_state);
 
     if (xSemaphoreTake(g_state_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-        sip_state_t old_sip_state = g_system_state.sip_state;
         g_system_state.sip_state = new_sip_state;
-
-        // Update SIP registration status
         g_system_state.sip_registered = (new_sip_state == SIP_STATE_REGISTERED ||
                                         new_sip_state == SIP_STATE_CALLING ||
                                         new_sip_state == SIP_STATE_CONNECTED);
 
-        // Handle state transitions based on SIP state
         switch (new_sip_state) {
             case SIP_STATE_REGISTERED:
                 if (g_system_state.app_state == APP_STATE_INITIALIZING) {
@@ -350,7 +389,6 @@ esp_err_t app_controller_handle_error(int error_code, const char *error_message)
         return ESP_ERR_INVALID_STATE;
     }
 
-    // Report error to error handler system
     error_severity_t severity = ERROR_SEVERITY_ERROR;
     if (error_code < 0) {
         severity = ERROR_SEVERITY_CRITICAL;
@@ -370,7 +408,6 @@ esp_err_t app_controller_handle_error(int error_code, const char *error_message)
                      "Error ID: %" PRIu32, error_id);
         }
 
-        // Transition to error state if not already there
         if (g_system_state.app_state != APP_STATE_ERROR) {
             app_controller_transition_state(APP_STATE_ERROR);
         }
@@ -392,9 +429,6 @@ esp_err_t app_controller_update_config(const door_station_config_t *config)
     }
 
     ESP_LOGI(TAG, "Configuration updated - restarting services");
-
-    // Configuration updates would trigger service restarts
-    // This is a placeholder for future implementation
     
     return ESP_OK;
 }
@@ -461,8 +495,6 @@ esp_err_t app_controller_reset_error_count(void)
     return ESP_OK;
 }
 
-// Private functions
-
 static void app_controller_update_uptime(void)
 {
     if (xSemaphoreTake(g_state_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
@@ -504,16 +536,13 @@ esp_err_t app_controller_stop(void)
 
     ESP_LOGI(TAG, "Stopping application controller");
 
-    // Set state to error to prevent new operations
     app_controller_transition_state(APP_STATE_ERROR);
 
-    // Stop event loop if running
     if (g_app_event_loop != NULL) {
         esp_event_loop_delete(g_app_event_loop);
         g_app_event_loop = NULL;
     }
 
-    // Cleanup resources
     if (g_state_mutex != NULL) {
         vSemaphoreDelete(g_state_mutex);
         g_state_mutex = NULL;
