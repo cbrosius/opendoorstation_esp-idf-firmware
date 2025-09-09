@@ -21,6 +21,7 @@ typedef struct {
     char sip_callee[64];             ///< SIP callee URI
     uint16_t web_port;               ///< Web server port (1024-65535)
     uint32_t door_pulse_duration;    ///< Door relay pulse duration in ms (500-10000)
+    uint32_t call_timeout;           ///< SIP call timeout in seconds
 } door_station_config_t;
 
 /**

@@ -35,7 +35,8 @@ static const door_station_config_t DEFAULT_CONFIG = {
     .sip_password = "",
     .sip_callee = "",
     .web_port = 8080,
-    .door_pulse_duration = 2000
+    .door_pulse_duration = 2000,
+    .call_timeout = 60 // Set to a valid default (seconds)
 };
 
 // Validation error messages

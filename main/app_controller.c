@@ -130,6 +130,7 @@ static void services_init_task(void *arg)
             strncpy(sip_config.domain, config.sip_domain, sizeof(sip_config.domain) - 1);
             strncpy(sip_config.password, config.sip_password, sizeof(sip_config.password) - 1);
             strncpy(sip_config.callee, config.sip_callee, sizeof(sip_config.callee) - 1);
+            sip_config.call_timeout = config.call_timeout;
 
             result = sip_manager_init(&sip_config);
             if (result == ESP_OK) {
