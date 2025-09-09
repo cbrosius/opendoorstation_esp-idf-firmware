@@ -93,6 +93,120 @@ extern void test_sip_io_integration_status_request(void);
 extern void test_sip_io_integration_update_config(void);
 extern void test_sip_io_integration_inactive_ignores_commands(void);
 
+// Web server test function declarations
+extern void test_web_server_init_success(void);
+extern void test_web_server_init_invalid_port(void);
+extern void test_web_server_double_init(void);
+extern void test_web_server_stop_success(void);
+extern void test_web_server_stop_not_running(void);
+extern void test_web_server_is_running_states(void);
+extern void test_web_server_port_range(void);
+
+// Web API test function declarations
+extern void test_config_api_get_success(void);
+extern void test_config_api_json_parsing(void);
+extern void test_config_api_json_invalid(void);
+extern void test_config_api_sensitive_data_masking(void);
+extern void test_config_api_validation_integration(void);
+extern void test_config_api_partial_updates(void);
+
+// Web virtual I/O test function declarations
+extern void test_virtual_doorbell_api_integration(void);
+extern void test_relay_status_json_format(void);
+extern void test_system_status_json_format(void);
+extern void test_doorbell_response_format(void);
+extern void test_relay_state_mapping(void);
+extern void test_api_endpoint_paths(void);
+extern void test_web_server_with_virtual_io_apis(void);
+
+// WebSocket test function declarations
+extern void test_websocket_server_initialization(void);
+extern void test_websocket_message_format(void);
+extern void test_websocket_broadcast_function(void);
+extern void test_websocket_broadcast_without_server(void);
+extern void test_websocket_ping_pong_message(void);
+extern void test_websocket_client_tracking(void);
+extern void test_websocket_json_relay_states(void);
+
+// Web IP logging test function declarations
+extern void test_web_server_ip_logging_when_running(void);
+extern void test_web_server_ip_logging_when_not_running(void);
+extern void test_web_server_port_storage(void);
+extern void test_web_server_multiple_ip_log_calls(void);
+
+// Hardware abstraction layer test function declarations
+extern void test_gpio_hal_initialization_smoke(void);
+extern void test_gpio_hal_relay_control_smoke(void);
+extern void test_gpio_hal_button_input_smoke(void);
+extern void test_gpio_hal_error_conditions_smoke(void);
+extern void test_sip_hal_initialization_smoke(void);
+extern void test_sip_hal_call_management_smoke(void);
+extern void test_sip_hal_dtmf_processing_smoke(void);
+extern void test_sip_hal_error_conditions_smoke(void);
+extern void test_nvs_hal_initialization_smoke(void);
+extern void test_nvs_hal_config_persistence_smoke(void);
+extern void test_nvs_hal_factory_reset_smoke(void);
+extern void test_nvs_hal_error_conditions_smoke(void);
+extern void test_timer_hal_time_functions_smoke(void);
+extern void test_timer_hal_call_counting_smoke(void);
+extern void test_freertos_hal_task_creation_smoke(void);
+extern void test_freertos_hal_semaphore_operations_smoke(void);
+extern void test_freertos_hal_error_conditions_smoke(void);
+extern void test_hal_integration_io_timer_smoke(void);
+extern void test_hal_integration_sip_timer_smoke(void);
+extern void test_hal_coverage_all_gpio_functions(void);
+extern void test_hal_coverage_all_sip_functions(void);
+extern void test_hal_coverage_all_config_functions(void);
+
+// Web server hardware abstraction layer test function declarations
+extern void test_web_server_hal_initialization_smoke(void);
+extern void test_web_server_hal_stop_smoke(void);
+extern void test_web_server_hal_uri_registration_smoke(void);
+extern void test_web_server_hal_broadcast_smoke(void);
+extern void test_web_server_hal_url_logging_smoke(void);
+extern void test_web_server_hal_error_conditions_smoke(void);
+extern void test_web_server_hal_multiple_init_smoke(void);
+extern void test_web_server_hal_stop_without_init_smoke(void);
+extern void test_web_server_hal_broadcast_without_init_smoke(void);
+extern void test_web_server_hal_coverage_all_functions(void);
+
+// End-to-end integration test function declarations
+extern void test_e2e_button_press_to_call_workflow(void);
+extern void test_e2e_dtmf_to_relay_control_workflow(void);
+extern void test_e2e_call_timeout_workflow(void);
+extern void test_e2e_multiple_call_attempts_workflow(void);
+extern void test_e2e_web_config_update_workflow(void);
+extern void test_e2e_virtual_doorbell_workflow(void);
+extern void test_e2e_real_time_status_updates_workflow(void);
+extern void test_e2e_config_persistence_across_reboot(void);
+extern void test_e2e_config_recovery_from_corruption(void);
+extern void test_e2e_factory_reset_workflow(void);
+extern void test_e2e_config_validation_integration(void);
+extern void test_e2e_system_startup_sequence(void);
+extern void test_e2e_component_failure_recovery(void);
+extern void test_e2e_concurrent_operations(void);
+
+// Performance and reliability test function declarations
+extern void test_stress_concurrent_sip_web_operations(void);
+extern void test_stress_rapid_button_presses(void);
+extern void test_stress_rapid_config_updates(void);
+extern void test_stress_relay_operations(void);
+extern void test_memory_leak_config_operations(void);
+extern void test_memory_leak_sip_operations(void);
+extern void test_memory_leak_web_operations(void);
+extern void test_resource_usage_monitoring(void);
+extern void test_reliability_sip_registration_failure_recovery(void);
+extern void test_reliability_call_failure_recovery(void);
+extern void test_reliability_nvs_failure_recovery(void);
+extern void test_reliability_gpio_failure_recovery(void);
+extern void test_reliability_web_server_failure_recovery(void);
+extern void test_reliability_system_overload_recovery(void);
+extern void test_reliability_error_handler_integration(void);
+extern void test_performance_config_operations_timing(void);
+extern void test_performance_sip_call_setup_timing(void);
+extern void test_performance_relay_operation_timing(void);
+extern void test_performance_system_responsiveness(void);
+
 void setUp(void) {
     // Set up code for each test
 }
@@ -106,7 +220,7 @@ void test_basic_functionality(void) {
     TEST_ASSERT_TRUE(true);
 }
 
-void app_main(void) {
+void app_main_tests(void) {
     ESP_LOGI(TAG, "Starting Unity test framework");
     
     UNITY_BEGIN();
@@ -202,6 +316,120 @@ void app_main(void) {
     RUN_TEST(test_sip_io_integration_status_request);
     RUN_TEST(test_sip_io_integration_update_config);
     RUN_TEST(test_sip_io_integration_inactive_ignores_commands);
+    
+    // Web server tests
+    RUN_TEST(test_web_server_init_success);
+    RUN_TEST(test_web_server_init_invalid_port);
+    RUN_TEST(test_web_server_double_init);
+    RUN_TEST(test_web_server_stop_success);
+    RUN_TEST(test_web_server_stop_not_running);
+    RUN_TEST(test_web_server_is_running_states);
+    RUN_TEST(test_web_server_port_range);
+    
+    // Web API tests
+    RUN_TEST(test_config_api_get_success);
+    RUN_TEST(test_config_api_json_parsing);
+    RUN_TEST(test_config_api_json_invalid);
+    RUN_TEST(test_config_api_sensitive_data_masking);
+    RUN_TEST(test_config_api_validation_integration);
+    RUN_TEST(test_config_api_partial_updates);
+    
+    // Web virtual I/O tests
+    RUN_TEST(test_virtual_doorbell_api_integration);
+    RUN_TEST(test_relay_status_json_format);
+    RUN_TEST(test_system_status_json_format);
+    RUN_TEST(test_doorbell_response_format);
+    RUN_TEST(test_relay_state_mapping);
+    RUN_TEST(test_api_endpoint_paths);
+    RUN_TEST(test_web_server_with_virtual_io_apis);
+    
+    // WebSocket tests
+    RUN_TEST(test_websocket_server_initialization);
+    RUN_TEST(test_websocket_message_format);
+    RUN_TEST(test_websocket_broadcast_function);
+    RUN_TEST(test_websocket_broadcast_without_server);
+    RUN_TEST(test_websocket_ping_pong_message);
+    RUN_TEST(test_websocket_client_tracking);
+    RUN_TEST(test_websocket_json_relay_states);
+    
+    // Web IP logging tests
+    RUN_TEST(test_web_server_ip_logging_when_running);
+    RUN_TEST(test_web_server_ip_logging_when_not_running);
+    RUN_TEST(test_web_server_port_storage);
+    RUN_TEST(test_web_server_multiple_ip_log_calls);
+    
+    // Hardware abstraction layer tests
+    RUN_TEST(test_gpio_hal_initialization_smoke);
+    RUN_TEST(test_gpio_hal_relay_control_smoke);
+    RUN_TEST(test_gpio_hal_button_input_smoke);
+    RUN_TEST(test_gpio_hal_error_conditions_smoke);
+    RUN_TEST(test_sip_hal_initialization_smoke);
+    RUN_TEST(test_sip_hal_call_management_smoke);
+    RUN_TEST(test_sip_hal_dtmf_processing_smoke);
+    RUN_TEST(test_sip_hal_error_conditions_smoke);
+    RUN_TEST(test_nvs_hal_initialization_smoke);
+    RUN_TEST(test_nvs_hal_config_persistence_smoke);
+    RUN_TEST(test_nvs_hal_factory_reset_smoke);
+    RUN_TEST(test_nvs_hal_error_conditions_smoke);
+    RUN_TEST(test_timer_hal_time_functions_smoke);
+    RUN_TEST(test_timer_hal_call_counting_smoke);
+    RUN_TEST(test_freertos_hal_task_creation_smoke);
+    RUN_TEST(test_freertos_hal_semaphore_operations_smoke);
+    RUN_TEST(test_freertos_hal_error_conditions_smoke);
+    RUN_TEST(test_hal_integration_io_timer_smoke);
+    RUN_TEST(test_hal_integration_sip_timer_smoke);
+    RUN_TEST(test_hal_coverage_all_gpio_functions);
+    RUN_TEST(test_hal_coverage_all_sip_functions);
+    RUN_TEST(test_hal_coverage_all_config_functions);
+    
+    // Web server hardware abstraction layer tests
+    RUN_TEST(test_web_server_hal_initialization_smoke);
+    RUN_TEST(test_web_server_hal_stop_smoke);
+    RUN_TEST(test_web_server_hal_uri_registration_smoke);
+    RUN_TEST(test_web_server_hal_broadcast_smoke);
+    RUN_TEST(test_web_server_hal_url_logging_smoke);
+    RUN_TEST(test_web_server_hal_error_conditions_smoke);
+    RUN_TEST(test_web_server_hal_multiple_init_smoke);
+    RUN_TEST(test_web_server_hal_stop_without_init_smoke);
+    RUN_TEST(test_web_server_hal_broadcast_without_init_smoke);
+    RUN_TEST(test_web_server_hal_coverage_all_functions);
+    
+    // End-to-end integration tests
+    RUN_TEST(test_e2e_button_press_to_call_workflow);
+    RUN_TEST(test_e2e_dtmf_to_relay_control_workflow);
+    RUN_TEST(test_e2e_call_timeout_workflow);
+    RUN_TEST(test_e2e_multiple_call_attempts_workflow);
+    RUN_TEST(test_e2e_web_config_update_workflow);
+    RUN_TEST(test_e2e_virtual_doorbell_workflow);
+    RUN_TEST(test_e2e_real_time_status_updates_workflow);
+    RUN_TEST(test_e2e_config_persistence_across_reboot);
+    RUN_TEST(test_e2e_config_recovery_from_corruption);
+    RUN_TEST(test_e2e_factory_reset_workflow);
+    RUN_TEST(test_e2e_config_validation_integration);
+    RUN_TEST(test_e2e_system_startup_sequence);
+    RUN_TEST(test_e2e_component_failure_recovery);
+    RUN_TEST(test_e2e_concurrent_operations);
+    
+    // Performance and reliability tests
+    RUN_TEST(test_stress_concurrent_sip_web_operations);
+    RUN_TEST(test_stress_rapid_button_presses);
+    RUN_TEST(test_stress_rapid_config_updates);
+    RUN_TEST(test_stress_relay_operations);
+    RUN_TEST(test_memory_leak_config_operations);
+    RUN_TEST(test_memory_leak_sip_operations);
+    RUN_TEST(test_memory_leak_web_operations);
+    RUN_TEST(test_resource_usage_monitoring);
+    RUN_TEST(test_reliability_sip_registration_failure_recovery);
+    RUN_TEST(test_reliability_call_failure_recovery);
+    RUN_TEST(test_reliability_nvs_failure_recovery);
+    RUN_TEST(test_reliability_gpio_failure_recovery);
+    RUN_TEST(test_reliability_web_server_failure_recovery);
+    RUN_TEST(test_reliability_system_overload_recovery);
+    RUN_TEST(test_reliability_error_handler_integration);
+    RUN_TEST(test_performance_config_operations_timing);
+    RUN_TEST(test_performance_sip_call_setup_timing);
+    RUN_TEST(test_performance_relay_operation_timing);
+    RUN_TEST(test_performance_system_responsiveness);
     
     UNITY_END();
 }

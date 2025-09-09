@@ -27,6 +27,12 @@ else()
     message(STATUS "No .env file found, using system environment variables only")
 endif()
 
+# Force include test component if test mode is enabled
+if(DEFINED ENV{RUN_TESTS})
+    message(STATUS "Test mode detected - forcing test component inclusion")
+    set(EXTRA_COMPONENT_DIRS "test")
+endif()
+
 # Include ESP-IDF build system
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 

@@ -224,4 +224,18 @@ esp_err_t nvs_erase_all(nvs_handle_t handle) {
     }
     
     return ESP_OK;
+}esp_e
+rr_t nvs_erase_key(nvs_handle_t handle, const char* key) {
+    if (fail_mode) {
+        return ESP_FAIL;
+    }
+    
+    for (int i = 0; i < entry_count; i++) {
+        if (strcmp(mock_entries[i].key, key) == 0) {
+            mock_entries[i].exists = false;
+            return ESP_OK;
+        }
+    }
+    
+    return ESP_ERR_NVS_NOT_FOUND;
 }

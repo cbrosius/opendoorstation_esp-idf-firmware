@@ -9,6 +9,22 @@
 
 static const char *TAG = "config_manager";
 static const char *NVS_NAMESPACE = "door_station";
+static const char *NVS_SECURE_NAMESPACE = "door_secure";
+
+// Sensitive field names that should be encrypted and masked
+static const char* SENSITIVE_FIELDS[] = {
+    "wifi_password",
+    "sip_password"
+};
+static const size_t SENSITIVE_FIELDS_COUNT = sizeof(SENSITIVE_FIELDS) / sizeof(SENSITIVE_FIELDS[0]);
+
+// Mask character for sensitive values
+static const char MASK_CHAR = '*';
+static const size_t MIN_MASK_LENGTH = 8;
+
+// Current merged configuration (NVS + build-time overrides)
+static door_station_config_t current_merged_config = {0};
+static bool config_manager_initialized = false;
 
 // Default configuration values
 static const door_station_config_t DEFAULT_CONFIG = {
@@ -143,6 +159,52 @@ static bool is_valid_sip_uri(const char *uri) {
 }
 
 /**
+ * @brief Initialize secure NVS partition for sensitive data
+ */
+static esp_err_t init_secure_nvs(void) {
+    ESP_LOGI(TAG, "Initializing secure NVS partition");
+    
+    // For now, we'll use the default NVS encryption
+    // In production, you would use a dedicated secure partition
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ret = nvs_flash_init();
+    }
+    
+    return ret;
+}
+
+/**
+ * @brief Save sensitive string to secure storage
+ */
+static esp_err_t save_sensitive_string(nvs_handle_t handle, const char *key, const char *value) {
+    if (strlen(value) == 0) {
+        // Delete key if value is empty
+        esp_err_t err = nvs_erase_key(handle, key);
+        if (err == ESP_ERR_NVS_NOT_FOUND) {
+            return ESP_OK; // Key doesn't exist, that's fine
+        }
+        return err;
+    }
+    
+    return nvs_set_str(handle, key, value);
+}
+
+/**
+ * @brief Load sensitive string from secure storage
+ */
+static esp_err_t load_sensitive_string(nvs_handle_t handle, const char *key, char *value, size_t max_size) {
+    size_t required_size = max_size;
+    esp_err_t err = nvs_get_str(handle, key, value, &required_size);
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        value[0] = '\0'; // Set to empty string if not found
+        return ESP_OK;
+    }
+    return err;
+}
+
+/**
  * @brief Apply build-time configuration from compile definitions
  */
 static void apply_build_time_config(door_station_config_t *config) {
@@ -201,12 +263,8 @@ static void apply_build_time_config(door_station_config_t *config) {
 esp_err_t config_manager_init(void) {
     ESP_LOGI(TAG, "Initializing configuration manager");
     
-    // Initialize NVS
-    esp_err_t ret = nvs_flash_init();
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_ERROR_CHECK(nvs_flash_erase());
-        ret = nvs_flash_init();
-    }
+    // Initialize secure NVS
+    esp_err_t ret = init_secure_nvs();
     ESP_ERROR_CHECK(ret);
     
     // Load current configuration from NVS
@@ -253,6 +311,10 @@ esp_err_t config_manager_init(void) {
         }
     }
     
+    // Store the merged configuration for later retrieval
+    current_merged_config = current_config;
+    config_manager_initialized = true;
+    
     ESP_LOGI(TAG, "Configuration manager initialized successfully");
     return ESP_OK;
 }
@@ -294,7 +356,7 @@ config_validation_error_t config_manager_validate(const door_station_config_t *c
     }
     
     // Validate web port
-    if (config->web_port < 1024 || config->web_port > 65535) {
+    if (config->web_port < 1024) {
         return CONFIG_VALIDATION_WEB_PORT_INVALID;
     }
     
@@ -326,42 +388,47 @@ esp_err_t config_manager_load(door_station_config_t *config) {
     
     ESP_LOGI(TAG, "Loading configuration from NVS");
     
-    nvs_handle_t nvs_handle;
-    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &nvs_handle);
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "Failed to open NVS namespace, using defaults");
-        config_manager_get_defaults(config);
-        return ESP_OK;
-    }
-    
     // Start with defaults
     config_manager_get_defaults(config);
     
-    // Load each field, keeping defaults if not found
-    size_t required_size;
+    // Load non-sensitive configuration from regular NVS
+    nvs_handle_t nvs_handle;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &nvs_handle);
+    if (err == ESP_OK) {
+        size_t required_size;
+        
+        required_size = sizeof(config->wifi_ssid);
+        nvs_get_str(nvs_handle, "wifi_ssid", config->wifi_ssid, &required_size);
+        
+        required_size = sizeof(config->sip_user);
+        nvs_get_str(nvs_handle, "sip_user", config->sip_user, &required_size);
+        
+        required_size = sizeof(config->sip_domain);
+        nvs_get_str(nvs_handle, "sip_domain", config->sip_domain, &required_size);
+        
+        required_size = sizeof(config->sip_callee);
+        nvs_get_str(nvs_handle, "sip_callee", config->sip_callee, &required_size);
+        
+        nvs_get_u16(nvs_handle, "web_port", &config->web_port);
+        nvs_get_u32(nvs_handle, "door_pulse_duration", &config->door_pulse_duration);
+        
+        nvs_close(nvs_handle);
+    } else {
+        ESP_LOGW(TAG, "Failed to open regular NVS namespace");
+    }
     
-    required_size = sizeof(config->wifi_ssid);
-    nvs_get_str(nvs_handle, "wifi_ssid", config->wifi_ssid, &required_size);
-    
-    required_size = sizeof(config->wifi_password);
-    nvs_get_str(nvs_handle, "wifi_password", config->wifi_password, &required_size);
-    
-    required_size = sizeof(config->sip_user);
-    nvs_get_str(nvs_handle, "sip_user", config->sip_user, &required_size);
-    
-    required_size = sizeof(config->sip_domain);
-    nvs_get_str(nvs_handle, "sip_domain", config->sip_domain, &required_size);
-    
-    required_size = sizeof(config->sip_password);
-    nvs_get_str(nvs_handle, "sip_password", config->sip_password, &required_size);
-    
-    required_size = sizeof(config->sip_callee);
-    nvs_get_str(nvs_handle, "sip_callee", config->sip_callee, &required_size);
-    
-    nvs_get_u16(nvs_handle, "web_port", &config->web_port);
-    nvs_get_u32(nvs_handle, "door_pulse_duration", &config->door_pulse_duration);
-    
-    nvs_close(nvs_handle);
+    // Load sensitive configuration from secure NVS
+    nvs_handle_t secure_handle;
+    err = nvs_open(NVS_SECURE_NAMESPACE, NVS_READONLY, &secure_handle);
+    if (err == ESP_OK) {
+        load_sensitive_string(secure_handle, "wifi_password", config->wifi_password, sizeof(config->wifi_password));
+        load_sensitive_string(secure_handle, "sip_password", config->sip_password, sizeof(config->sip_password));
+        
+        nvs_close(secure_handle);
+        ESP_LOGI(TAG, "Sensitive configuration loaded from secure storage");
+    } else {
+        ESP_LOGW(TAG, "Failed to open secure NVS namespace, sensitive fields will be empty");
+    }
     
     ESP_LOGI(TAG, "Configuration loaded successfully");
     return ESP_OK;
@@ -382,19 +449,19 @@ esp_err_t config_manager_save(const door_station_config_t *config) {
     
     ESP_LOGI(TAG, "Saving configuration to NVS");
     
+    esp_err_t err = ESP_OK;
+    
+    // Save non-sensitive configuration to regular NVS
     nvs_handle_t nvs_handle;
-    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle);
+    err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to open NVS namespace for writing");
         return err;
     }
     
-    // Save each field
     err |= nvs_set_str(nvs_handle, "wifi_ssid", config->wifi_ssid);
-    err |= nvs_set_str(nvs_handle, "wifi_password", config->wifi_password);
     err |= nvs_set_str(nvs_handle, "sip_user", config->sip_user);
     err |= nvs_set_str(nvs_handle, "sip_domain", config->sip_domain);
-    err |= nvs_set_str(nvs_handle, "sip_password", config->sip_password);
     err |= nvs_set_str(nvs_handle, "sip_callee", config->sip_callee);
     err |= nvs_set_u16(nvs_handle, "web_port", config->web_port);
     err |= nvs_set_u32(nvs_handle, "door_pulse_duration", config->door_pulse_duration);
@@ -406,36 +473,164 @@ esp_err_t config_manager_save(const door_station_config_t *config) {
     nvs_close(nvs_handle);
     
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to save configuration to NVS");
+        ESP_LOGE(TAG, "Failed to save non-sensitive configuration to NVS");
         return err;
     }
     
-    ESP_LOGI(TAG, "Configuration saved successfully");
+    // Save sensitive configuration to secure NVS
+    nvs_handle_t secure_handle;
+    err = nvs_open(NVS_SECURE_NAMESPACE, NVS_READWRITE, &secure_handle);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to open secure NVS namespace for writing");
+        return err;
+    }
+    
+    err |= save_sensitive_string(secure_handle, "wifi_password", config->wifi_password);
+    err |= save_sensitive_string(secure_handle, "sip_password", config->sip_password);
+    
+    if (err == ESP_OK) {
+        err = nvs_commit(secure_handle);
+    }
+    
+    nvs_close(secure_handle);
+    
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to save sensitive configuration to secure NVS");
+        return err;
+    }
+    
+    ESP_LOGI(TAG, "Configuration saved successfully to both regular and secure storage");
     return ESP_OK;
 }
 
 esp_err_t config_manager_factory_reset(void) {
     ESP_LOGI(TAG, "Performing factory reset");
     
+    esp_err_t err = ESP_OK;
+    
+    // Clear regular NVS namespace
     nvs_handle_t nvs_handle;
-    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to open NVS namespace for factory reset");
-        return err;
+    esp_err_t regular_err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle);
+    if (regular_err == ESP_OK) {
+        regular_err = nvs_erase_all(nvs_handle);
+        if (regular_err == ESP_OK) {
+            regular_err = nvs_commit(nvs_handle);
+        }
+        nvs_close(nvs_handle);
+        
+        if (regular_err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to clear regular NVS namespace");
+            err = regular_err;
+        } else {
+            ESP_LOGI(TAG, "Regular configuration cleared");
+        }
+    } else {
+        ESP_LOGW(TAG, "Failed to open regular NVS namespace for factory reset");
     }
     
-    err = nvs_erase_all(nvs_handle);
+    // Clear secure NVS namespace
+    nvs_handle_t secure_handle;
+    esp_err_t secure_err = nvs_open(NVS_SECURE_NAMESPACE, NVS_READWRITE, &secure_handle);
+    if (secure_err == ESP_OK) {
+        secure_err = nvs_erase_all(secure_handle);
+        if (secure_err == ESP_OK) {
+            secure_err = nvs_commit(secure_handle);
+        }
+        nvs_close(secure_handle);
+        
+        if (secure_err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to clear secure NVS namespace");
+            err = secure_err;
+        } else {
+            ESP_LOGI(TAG, "Secure credentials cleared");
+        }
+    } else {
+        ESP_LOGW(TAG, "Failed to open secure NVS namespace for factory reset");
+    }
+    
     if (err == ESP_OK) {
-        err = nvs_commit(nvs_handle);
+        ESP_LOGI(TAG, "Factory reset completed successfully");
+    } else {
+        ESP_LOGE(TAG, "Factory reset completed with errors");
     }
     
-    nvs_close(nvs_handle);
+    return err;
+}
+
+esp_err_t config_manager_load_masked(door_station_config_t *config) {
+    if (config == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
     
+    // First load the actual configuration
+    esp_err_t err = config_manager_load(config);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to perform factory reset");
         return err;
     }
     
-    ESP_LOGI(TAG, "Factory reset completed successfully");
+    // Mask sensitive fields
+    config_manager_mask_sensitive_value(config->wifi_password, config->wifi_password, sizeof(config->wifi_password));
+    config_manager_mask_sensitive_value(config->sip_password, config->sip_password, sizeof(config->sip_password));
+    
+    ESP_LOGI(TAG, "Configuration loaded with masked sensitive fields");
+    return ESP_OK;
+}
+
+bool config_manager_is_sensitive_field(const char *field_name) {
+    if (field_name == NULL) {
+        return false;
+    }
+    
+    for (size_t i = 0; i < SENSITIVE_FIELDS_COUNT; i++) {
+        if (strcmp(field_name, SENSITIVE_FIELDS[i]) == 0) {
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+void config_manager_mask_sensitive_value(const char *value, char *masked_value, size_t masked_size) {
+    if (value == NULL || masked_value == NULL || masked_size == 0) {
+        return;
+    }
+    
+    size_t value_len = strlen(value);
+    
+    if (value_len == 0) {
+        // Empty value, keep it empty
+        masked_value[0] = '\0';
+        return;
+    }
+    
+    // Calculate mask length (minimum 8 characters, or actual length if shorter)
+    size_t mask_len = (value_len < MIN_MASK_LENGTH) ? value_len : MIN_MASK_LENGTH;
+    
+    // Ensure we don't exceed buffer size
+    if (mask_len >= masked_size) {
+        mask_len = masked_size - 1;
+    }
+    
+    // Fill with mask characters
+    for (size_t i = 0; i < mask_len; i++) {
+        masked_value[i] = MASK_CHAR;
+    }
+    
+    // Null terminate
+    masked_value[mask_len] = '\0';
+}
+
+esp_err_t config_manager_get_current(door_station_config_t *config) {
+    if (config == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    
+    if (!config_manager_initialized) {
+        ESP_LOGE(TAG, "Configuration manager not initialized");
+        return ESP_ERR_INVALID_STATE;
+    }
+    
+    // Return the current merged configuration
+    *config = current_merged_config;
     return ESP_OK;
 }

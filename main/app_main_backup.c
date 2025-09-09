@@ -12,19 +12,8 @@
 #include "sip_manager.h"
 #include "app_controller.h"
 #include "error_handler.h"
-#include "wifi_manager.h"
-#include "web_server.h"
 
 static const char *TAG = "sip_door_station";
-
-// Test mode support
-#ifdef CONFIG_RUN_TESTS
-#include "unity.h"
-// Weak function declaration - will be overridden by test component if linked
-void __attribute__((weak)) app_main_tests(void) {
-    ESP_LOGE(TAG, "Test function not linked - test component not included in build");
-}
-#endif
 
 // Event handlers
 static void button_event_handler(void* arg, esp_event_base_t event_base,
@@ -135,75 +124,8 @@ static void dtmf_callback(char digit, void *user_data)
     }
 }
 
-// WiFi event callback function
-static void wifi_event_callback(wifi_state_t state, const wifi_info_t *info, void *user_data)
-{
-    ESP_LOGI(TAG, "WiFi state changed to: %s", wifi_manager_get_state_string(state));
-    
-    switch (state) {
-        case WIFI_STATE_CONNECTED:
-            ESP_LOGI(TAG, "WiFi connected successfully!");
-            ESP_LOGI(TAG, "SSID: %s", info->ssid);
-            ESP_LOGI(TAG, "IP Address: %s", info->ip_address);
-            ESP_LOGI(TAG, "Signal Strength: %d dBm", info->rssi);
-            
-            // Start web server when WiFi is connected
-            door_station_config_t *config = (door_station_config_t*)user_data;
-            if (config != NULL) {
-                esp_err_t result = web_server_init(config->web_port);
-                if (result == ESP_OK) {
-                    ESP_LOGI(TAG, "Web server started successfully");
-                    // Log the web interface URL with IP address
-                    web_server_log_url();
-                } else {
-                    ESP_LOGE(TAG, "Failed to start web server: %s", esp_err_to_name(result));
-                }
-            }
-            break;
-            
-        case WIFI_STATE_DISCONNECTED:
-            ESP_LOGW(TAG, "WiFi disconnected");
-            // Stop web server when WiFi is disconnected
-            web_server_stop();
-            break;
-            
-        case WIFI_STATE_CONNECTING:
-            ESP_LOGI(TAG, "Connecting to WiFi...");
-            break;
-            
-        case WIFI_STATE_ERROR:
-            ESP_LOGE(TAG, "WiFi connection failed after retries");
-            break;
-            
-        default:
-            break;
-    }
-}
-
 void app_main(void)
 {
-#ifdef CONFIG_RUN_TESTS
-    ESP_LOGI(TAG, "ESP32 SIP Door Station - Unity Test Framework");
-    ESP_LOGI(TAG, "==========================================");
-    ESP_LOGI(TAG, "Starting comprehensive test suite...");
-    ESP_LOGI(TAG, "");
-    
-    // Give the system a moment to initialize
-    vTaskDelay(pdMS_TO_TICKS(1000));
-    
-    // Run all tests
-    app_main_tests();
-    
-    ESP_LOGI(TAG, "");
-    ESP_LOGI(TAG, "Test execution completed.");
-    ESP_LOGI(TAG, "Check the output above for test results.");
-    
-    // Keep the system running
-    while (1) {
-        vTaskDelay(pdMS_TO_TICKS(10000));
-        ESP_LOGI(TAG, "System running... Press reset to run tests again.");
-    }
-#else
     ESP_LOGI(TAG, "ESP32 SIP Door Station starting...");
     
     // Initialize default event loop
@@ -220,9 +142,9 @@ void app_main(void)
         return;
     }
     
-    // Get current merged configuration (NVS + build-time overrides)
+    // Load and display current configuration
     door_station_config_t config;
-    config_result = config_manager_get_current(&config);
+    config_result = config_manager_load(&config);
     if (config_result == ESP_OK) {
         ESP_LOGI(TAG, "Configuration loaded successfully:");
         ESP_LOGI(TAG, "  Wi-Fi SSID: %s", strlen(config.wifi_ssid) > 0 ? config.wifi_ssid : "[not configured]");
@@ -321,41 +243,15 @@ void app_main(void)
         ESP_LOGW(TAG, "Configuration invalid - SIP manager not started");
     }
     
-    // Initialize WiFi manager
-    ret = wifi_manager_init();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to initialize WiFi manager: %s", esp_err_to_name(ret));
-        return;
-    }
-    
-    // Register WiFi event callback (pass config as user data for web server initialization)
-    static door_station_config_t wifi_config;
-    if (config_result == ESP_OK) {
-        wifi_config = config;
-        ret = wifi_manager_register_callback(wifi_event_callback, &wifi_config);
-        if (ret != ESP_OK) {
-            ESP_LOGW(TAG, "Failed to register WiFi callback: %s", esp_err_to_name(ret));
-        }
-    }
-    
-    // Connect to WiFi if configured
-    if (config_result == ESP_OK && strlen(config.wifi_ssid) > 0) {
-        ESP_LOGI(TAG, "Connecting to WiFi network: %s", config.wifi_ssid);
-        ret = wifi_manager_connect(config.wifi_ssid, config.wifi_password);
-        if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to start WiFi connection: %s", esp_err_to_name(ret));
-        }
-    } else {
-        ESP_LOGW(TAG, "WiFi not configured - web interface will not be available");
-        ESP_LOGI(TAG, "Configure WiFi settings and restart to enable web interface");
-    }
-    
     ESP_LOGI(TAG, "System initialized successfully");
     ESP_LOGI(TAG, "Press the boot button to test I/O functionality");
-    ESP_LOGI(TAG, "Web interface will be available once WiFi connects");
+    
+    // TODO: Initialize WiFi and web server
+    // When WiFi is connected and web server is started, the IP address will be logged:
+    // - web_server_init(config.web_port) will log the initial URL
+    // - web_server_log_url() can be called when WiFi reconnects to show the URL again
     
     // Start main application event loop (this function does not return)
     ESP_LOGI(TAG, "Starting main application event loop");
     app_controller_start_event_loop();
-#endif
 }

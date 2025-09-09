@@ -5,6 +5,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/timers.h"
+#include <string.h>
 
 static sip_config_t test_config;
 static bool dtmf_callback_called;
@@ -369,8 +370,9 @@ void test_sip_manager_get_call_stats_invalid_args(void) {
 void test_sip_manager_reset_call_stats_not_initialized(void) {
     esp_err_t ret = sip_manager_reset_call_stats();
     TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, ret);
-}sta
-tic dtmf_command_t last_dtmf_command;
+}
+
+static dtmf_command_t last_dtmf_command;
 static uint32_t last_dtmf_param;
 static void *last_dtmf_command_user_data;
 static bool dtmf_command_callback_called;

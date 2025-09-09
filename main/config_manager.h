@@ -92,6 +92,39 @@ void config_manager_get_defaults(door_station_config_t *config);
  */
 const char* config_manager_get_validation_error_message(config_validation_error_t error);
 
+/**
+ * @brief Get current merged configuration (NVS + build-time overrides)
+ * 
+ * @param config Pointer to configuration structure to fill
+ * @return ESP_OK on success, error code otherwise
+ */
+esp_err_t config_manager_get_current(door_station_config_t *config);
+
+/**
+ * @brief Load configuration with masked sensitive fields for display
+ * 
+ * @param config Pointer to configuration structure to fill
+ * @return ESP_OK on success, error code otherwise
+ */
+esp_err_t config_manager_load_masked(door_station_config_t *config);
+
+/**
+ * @brief Check if sensitive field should be masked
+ * 
+ * @param field_name Name of the configuration field
+ * @return true if field should be masked, false otherwise
+ */
+bool config_manager_is_sensitive_field(const char *field_name);
+
+/**
+ * @brief Mask sensitive string value for display
+ * 
+ * @param value Original value to mask
+ * @param masked_value Buffer to store masked value
+ * @param masked_size Size of masked value buffer
+ */
+void config_manager_mask_sensitive_value(const char *value, char *masked_value, size_t masked_size);
+
 #ifdef __cplusplus
 }
 #endif

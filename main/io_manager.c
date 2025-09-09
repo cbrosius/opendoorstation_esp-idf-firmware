@@ -1,5 +1,6 @@
 #include "io_manager.h"
 #include "io_events.h"
+#include "web_server.h"
 #include "esp_log.h"
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
@@ -136,6 +137,9 @@ esp_err_t io_manager_pulse_relay(relay_id_t relay, uint32_t duration_ms)
 
     // Publish relay state change event
     io_events_publish_relay_state_change(relay, old_state, RELAY_STATE_ON);
+    
+    // Broadcast WebSocket update
+    web_server_broadcast_relay_status(relay, RELAY_STATE_ON);
 
     // Start timer to turn relay off
     xTimerChangePeriod(s_io_state.relay_pulse_timers[relay], pdMS_TO_TICKS(duration_ms), 0);
@@ -168,6 +172,9 @@ esp_err_t io_manager_toggle_relay(relay_id_t relay)
 
     // Publish relay state change event
     io_events_publish_relay_state_change(relay, old_state, new_state);
+    
+    // Broadcast WebSocket update
+    web_server_broadcast_relay_status(relay, new_state);
 
     return ESP_OK;
 }
@@ -312,5 +319,8 @@ static void relay_pulse_timer_callback(TimerHandle_t timer)
 
         // Publish relay state change event
         io_events_publish_relay_state_change(relay, old_state, RELAY_STATE_OFF);
+        
+        // Broadcast WebSocket update
+        web_server_broadcast_relay_status(relay, RELAY_STATE_OFF);
     }
 }
