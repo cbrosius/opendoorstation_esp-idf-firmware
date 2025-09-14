@@ -1,5 +1,6 @@
 # ESP-IDF Build System
 build/
+firmware/
 sdkconfig
 sdkconfig.old
 *.tmp
@@ -83,3 +84,4 @@ config_private.h
 secrets.h
 wifi_credentials.h
 .env
+
